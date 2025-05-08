@@ -16,7 +16,7 @@ from config.settings import *
 from api.routes import setup_routes
 
 # Import core components
-from core.stream_manager import setup_streams, monitor_stream, start_remote_recorder_monitor
+from core.stream_manager import setup_streams, monitor_stream
 from core.utils import precompute_owner_embeddings
 
 # Import models
@@ -34,12 +34,20 @@ def initialize_app():
     print("Initializing StraySafe application...")
     
     # Create necessary directories
-    os.makedirs(UPLOAD_BASE_DIR, exist_ok=True)
-    os.makedirs(HLS_CLEANUP_DIR, exist_ok=True)
-    os.makedirs(REMOTE_RECORDINGS_DIR, exist_ok=True)
-    os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp'), exist_ok=True)
-    os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv', 'debug'), exist_ok=True)
-    os.chmod(HLS_CLEANUP_DIR, 0o777)
+    try:
+        os.makedirs(UPLOAD_BASE_DIR, exist_ok=True)
+        os.makedirs(HLS_CLEANUP_DIR, exist_ok=True)
+        os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp'), exist_ok=True)
+        os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv', 'debug'), exist_ok=True)
+        
+        # Try to set permissions, but don't fail if it doesn't work
+        try:
+            os.chmod(HLS_CLEANUP_DIR, 0o777)
+        except PermissionError:
+            print(f"Warning: Could not set permissions on {HLS_CLEANUP_DIR}. Some features may be limited.")
+    except PermissionError as e:
+        print(f"Warning: Permission error when creating directories: {e}")
+        print("The application will attempt to continue, but some features may not work correctly.")
     
     # Initialize database
     print("Initializing database...")
@@ -66,10 +74,6 @@ def initialize_app():
     deleted_count = cleanup_hls_segments()
     if deleted_count > 0:
         print(f"Deleted {deleted_count} old HLS segments")
-    
-    # Initialize remote recorder monitor
-    print("Starting remote recorder monitor...")
-    start_remote_recorder_monitor()
     
     # Initialize Flask app
     app = Flask(__name__)

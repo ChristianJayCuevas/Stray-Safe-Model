@@ -22,7 +22,6 @@ from core.notification import notify_owner, notify_pound
 from models.classifier import transform, vgg_model
 from data.database import owner_embeddings, detected_animals_log, notification_history, stream_data, animal_counters
 from core.utils import match_snapshot_to_owner, precompute_owner_embeddings, remove_green_border, log_animal_detection
-from core.stream_manager import check_remote_recorders, get_remote_frame, remote_recorders
 
 def handle_detected_animals(request):
     """Handle request for detected animals with filtering options"""
@@ -516,183 +515,6 @@ def handle_get_pet_image(username, filename):
     user_dir = os.path.join(UPLOAD_BASE_DIR, secure_filename(username))
     return send_from_directory(user_dir, filename)
 
-def handle_remote_recorders_status(request):
-    """Get status of remote recorders"""
-    
-    # Refresh remote recorders if requested
-    refresh = request.args.get('refresh', '').lower() == 'true'
-    if refresh:
-        try:
-            check_remote_recorders()
-        except Exception as e:
-            print(f"Error refreshing remote recorders: {e}")
-    
-    # Convert timestamps to human-readable format
-    recorder_status = {}
-    for stream_id, info in remote_recorders.items():
-        recorder_status[stream_id] = {
-            'client_ip': info['client_ip'],
-            'remote_path': info['remote_path'],
-            'last_checked': datetime.fromtimestamp(info['last_checked']).isoformat(),
-            'recorder_count': len(info['latest_frames']),
-            'recorders': {}
-        }
-        
-        # Add information about each recorder
-        for recorder_id, frame_info in info['latest_frames'].items():
-            metadata = frame_info.get('metadata', {})
-            timestamp = metadata.get('timestamp', 0)
-            buffer_seconds = metadata.get('buffer_seconds', 0)
-            
-            recorder_status[stream_id]['recorders'][recorder_id] = {
-                'timestamp': datetime.fromtimestamp(timestamp).isoformat() if timestamp else None,
-                'buffer_seconds': buffer_seconds,
-                'last_checked': datetime.fromtimestamp(frame_info['last_checked']).isoformat(),
-                'frame_available': os.path.exists(frame_info['frame_path']),
-                'stream_url': metadata.get('stream_url', 'unknown'),
-                'frame_dimensions': f"{metadata.get('frame_width', '?')}x{metadata.get('frame_height', '?')}"
-            }
-    
-    return jsonify({
-        'remote_recorders_enabled': USE_BUFFERED_STREAMS,
-        'recorder_count': len(remote_recorders),
-        'recorders': recorder_status
-    })
-
-def handle_toggle_remote_recorders(request):
-    """Enable or disable remote recorders"""
-    global USE_BUFFERED_STREAMS
-    
-    data = request.json or {}
-    enabled = data.get('enabled')
-    
-    if enabled is None:
-        return jsonify({"error": "Missing 'enabled' parameter"}), 400
-    
-    # Toggle the flag
-    USE_BUFFERED_STREAMS = bool(enabled)
-    
-    return jsonify({
-        "remote_recorders_enabled": USE_BUFFERED_STREAMS,
-        "message": f"Remote recorders {'enabled' if USE_BUFFERED_STREAMS else 'disabled'}"
-    })
-
-def handle_remote_recorder_snapshot(stream_id):
-    """Get a snapshot from a remote recorder"""
-    
-    # Check if the stream exists and has a remote recorder
-    if stream_id not in REMOTE_RECORDER_IPS:
-        return jsonify({"error": f"No remote recorder configured for stream {stream_id}"}), 404
-    
-    # Try to get a frame from the remote recorder
-    try:
-        frame, timestamp, buffer_seconds = get_remote_frame(stream_id)
-        
-        if frame is None:
-            return jsonify({"error": "Failed to get snapshot from remote recorder"}), 500
-            
-        # Convert to JPEG and base64 encode
-        ret, jpeg = cv2.imencode('.jpg', frame)
-        if not ret:
-            return jsonify({"error": "Failed to encode image"}), 500
-            
-        encoded = base64.b64encode(jpeg.tobytes()).decode('utf-8')
-        
-        return jsonify({
-            "stream_id": stream_id,
-            "timestamp": timestamp,
-            "buffer_seconds": buffer_seconds,
-            "image": encoded
-        })
-    except Exception as e:
-        return jsonify({"error": f"Error getting snapshot: {str(e)}"}), 500
-
-def handle_detected_image(stream_id, filename):
-    """Serve detected animal images from debug directory"""
-    debug_dir = os.path.join("venv", "debug", stream_id)
-    return send_from_directory(os.path.abspath(debug_dir), filename)
-
-def handle_animal_stats():
-    """Get statistics about detected animals"""
-    stats = {
-        "total_detections": len(detected_animals_log),
-        "animal_types": {},
-        "classifications": {
-            "stray": 0,
-            "not_stray": 0
-        },
-        "streams": {},
-        "notification_cases": {
-            "stray_registered": 0,
-            "stray_unregistered": 0,
-            "not_stray_registered": 0,
-            "not_stray_unregistered": 0
-        }
-    }
-    
-    # Count by animal type
-    for animal in detected_animals_log:
-        animal_type = animal.get('animal_type', 'unknown')
-        if animal_type not in stats["animal_types"]:
-            stats["animal_types"][animal_type] = 0
-        stats["animal_types"][animal_type] += 1
-        
-        # Count by classification
-        classification = animal.get('classification', 'unknown')
-        if classification in stats["classifications"]:
-            stats["classifications"][classification] += 1
-            
-        # Count by stream
-        stream_id = animal.get('stream_id', 'unknown')
-        if stream_id not in stats["streams"]:
-            stats["streams"][stream_id] = 0
-        stats["streams"][stream_id] += 1
-        
-        # Count by notification case
-        notification_case = animal.get('notification_case')
-        if notification_case in stats["notification_cases"]:
-            stats["notification_cases"][notification_case] += 1
-    
-    return jsonify(stats)
-
-def handle_debug_pipeline(stream_id):
-    """Debug detection pipeline for a stream"""
-    if stream_id not in stream_data:
-        return jsonify({"error": f"Stream {stream_id} not found"}), 404
-    
-    # Run detection pipeline on this stream
-    result = save_debug_images(stream_id)
-    
-    if not result:
-        return jsonify({"error": "Failed to process debug pipeline"}), 500
-    
-    # Get all debug images for this stream
-    debug_dir = os.path.join("venv", "debug", stream_id)
-    abs_debug_dir = os.path.abspath(debug_dir)
-    
-    if not os.path.exists(abs_debug_dir):
-        return jsonify({"error": "Debug directory not found"}), 404
-    
-    # List all debug images
-    debug_files = [f for f in os.listdir(abs_debug_dir) if f.endswith('.jpg')]
-    
-    # Generate URLs for frontend
-    debug_urls = {
-        f: f"/api2/debug-img/{stream_id}/{f}" for f in debug_files
-    }
-    
-    # Return debug info
-    return jsonify({
-        "stream_id": stream_id,
-        "debug_images": debug_urls,
-        "pipeline_data": stream_data[stream_id].get('debug_data', {})
-    })
-
-def handle_debug_image(stream_id, filename):
-    """Serve debug images from debug directory"""
-    debug_dir = os.path.join("venv", "debug", stream_id)
-    return send_from_directory(os.path.abspath(debug_dir), filename)
-
 def handle_streams_list():
     """Get information about active streams"""
     streams_info = {}
@@ -702,15 +524,8 @@ def handle_streams_list():
         stream_info = {
             "id": stream_id,
             "status": "active" if data.get('buffer') and len(data.get('buffer', [])) > 0 else "inactive",
-            "buffer_size": len(data.get('buffer', [])),
-            "has_remote_recorder": stream_id in REMOTE_RECORDER_IPS,
-            "remote_recorder_status": "unknown"
+            "buffer_size": len(data.get('buffer', []))
         }
-        
-        # Check if this stream has a remote recorder
-        if stream_id in remote_recorders:
-            stream_info["remote_recorder_status"] = remote_recorders[stream_id].get("status", "unknown")
-            stream_info["remote_recorder_last_seen"] = remote_recorders[stream_id].get("last_seen", 0)
         
         streams_info[stream_id] = stream_info
     

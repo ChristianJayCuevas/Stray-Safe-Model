@@ -27,9 +27,6 @@ from api.handlers import (
     handle_test_notification,
     handle_upload_pet_image,
     handle_get_pet_image,
-    handle_remote_recorders_status,
-    handle_toggle_remote_recorders,
-    handle_remote_recorder_snapshot,
     handle_breed_classification
 )
 
@@ -125,21 +122,6 @@ def setup_routes(app):
     @app.route('/api2/pet-image/<username>/<filename>', methods=['GET'])
     def get_pet_image(username, filename):
         return handle_get_pet_image(username, filename)
-    
-    # --- Get status of remote recorders ---
-    @app.route('/api2/remote-recorders', methods=['GET'])
-    def get_remote_recorders_status():
-        return handle_remote_recorders_status(request)
-    
-    # --- Toggle remote recorders ---
-    @app.route('/api2/remote-recorders/toggle', methods=['POST'])
-    def toggle_remote_recorders():
-        return handle_toggle_remote_recorders(request)
-    
-    # --- Get a snapshot from a remote recorder ---
-    @app.route('/api2/remote-recorders/<stream_id>/snapshot', methods=['GET'])
-    def get_remote_recorder_snapshot(stream_id):
-        return handle_remote_recorder_snapshot(stream_id)
     
     # --- Classify breed from image ---
     @app.route('/api2/classify-breed', methods=['POST'])

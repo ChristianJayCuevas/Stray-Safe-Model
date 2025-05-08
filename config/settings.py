@@ -42,7 +42,3 @@ DEBUG_DIR = os.path.join("venv", "debug")
 # --- Notification Settings ---
 # Maximum number of notifications to keep in history
 MAX_NOTIFICATION_HISTORY = 1000
-
-# --- Remote Recorder Settings ---
-# Check interval for remote recorders (seconds)
-REMOTE_RECORDER_CHECK_INTERVAL = 30

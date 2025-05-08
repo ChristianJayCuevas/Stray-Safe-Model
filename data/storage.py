@@ -7,7 +7,7 @@ import glob
 import time
 
 # Import configuration
-from config.constants import UPLOAD_BASE_DIR, DATABASE_PATH, HLS_CLEANUP_DIR, REMOTE_RECORDINGS_DIR
+from config.constants import UPLOAD_BASE_DIR, DATABASE_PATH, HLS_CLEANUP_DIR
 
 def setup_storage():
     """
@@ -21,7 +21,6 @@ def setup_storage():
         os.makedirs(UPLOAD_BASE_DIR, exist_ok=True)
         os.makedirs(DATABASE_PATH, exist_ok=True)
         os.makedirs(HLS_CLEANUP_DIR, exist_ok=True)
-        os.makedirs(REMOTE_RECORDINGS_DIR, exist_ok=True)
         
         # Set permissions for HLS directory
         os.chmod(HLS_CLEANUP_DIR, 0o777)

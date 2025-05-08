@@ -20,9 +20,6 @@ from core.detection import detect_animals_in_frame, find_matching_tracker, creat
 # Import from data
 from data.database import stream_data, animal_counters
 
-# Global dictionary for remote recorder info
-remote_recorders = {}
-
 def start_ffmpeg(stream_id):
     """
     Start FFmpeg process for HLS streaming
@@ -61,30 +58,8 @@ def capture_frames(rtsp_url, stream_id):
     if not cap.isOpened():
         print(f"Failed to open RTSP stream: {rtsp_url}")
         return
-
-    # Check if this stream has a remote recorder
-    has_remote_recorder = stream_id in REMOTE_RECORDER_IPS and USE_BUFFERED_STREAMS
     
     while True:
-        # First try to get the frame from the remote recorder if available
-        remote_frame = None
-        if has_remote_recorder:
-            remote_frame, timestamp, buffer_seconds = get_remote_frame(stream_id)
-            
-            # If we got a frame from the remote recorder, use it
-            if remote_frame is not None:
-                if stream_id not in stream_data:
-                    # Stream not initialized yet, wait for process_stream to start
-                    time.sleep(0.1)
-                    continue
-                    
-                # Use the remote frame instead of capturing from RTSP
-                resized = cv2.resize(remote_frame, (FRAME_WIDTH, FRAME_HEIGHT))
-                stream_data[stream_id]['buffer'].append(resized)
-                time.sleep(1 / 30)
-                continue
-        
-        # If no remote frame or remote recording is disabled, use direct RTSP
         try:
             ret, frame = cap.read()
             if not ret:
@@ -456,157 +431,3 @@ def monitor_stream(rtsp_url, stream_id):
         else:
             print(f"[{stream_id}] Stream not available. Retrying in 30 seconds...")
             time.sleep(30)
-
-def check_remote_recorders():
-    """
-    Check for remote recorders on the network and update the remote_recorders dictionary
-    """
-    for stream_id, client_ip in REMOTE_RECORDER_IPS.items():
-        print(f"Checking for remote recorder for {stream_id} at {client_ip}...")
-        remote_path = None
-        
-        # Platform-specific path construction
-        import sys
-        if sys.platform == 'win32':
-            # On Windows, check the network share
-            remote_path = f"\\\\{client_ip}\\{REMOTE_SHARE_NAME}\\shared"
-        else:
-            # On Linux, check if the directory is mounted
-            remote_path = os.path.join(REMOTE_RECORDINGS_DIR, stream_id)
-            
-            # Create directory if it doesn't exist
-            os.makedirs(remote_path, exist_ok=True)
-            
-            # Try to mount the remote share if not already mounted
-            mount_check = subprocess.run(
-                f"mount | grep {client_ip}", 
-                shell=True, 
-                capture_output=True, 
-                text=True
-            )
-            
-            if client_ip not in mount_check.stdout:
-                try:
-                    # Try to mount using CIFS/SMB
-                    mount_cmd = f"mount -t cifs //{client_ip}/{REMOTE_SHARE_NAME}/shared {remote_path} -o guest"
-                    subprocess.run(mount_cmd, shell=True, check=True)
-                    print(f"Mounted remote recorder share from {client_ip} to {remote_path}")
-                except Exception as e:
-                    print(f"Failed to mount remote recorder share: {e}")
-                    continue
-        
-        # Check if the remote directory exists and is accessible
-        if remote_path and os.path.exists(remote_path):
-            print(f"Found remote recorder for {stream_id} at {remote_path}")
-            
-            # Scan for latest frame files
-            latest_frames = {}
-            try:
-                for item in os.listdir(remote_path):
-                    if item.endswith('.jpg') and 'latest' in item:
-                        # Found a latest frame file
-                        recorder_id = item.replace('_latest.jpg', '')
-                        
-                        # Check if there's a metadata file
-                        metadata_file = item.replace('.jpg', '.json')
-                        metadata_path = os.path.join(remote_path, metadata_file)
-                        
-                        if os.path.exists(metadata_path):
-                            try:
-                                with open(metadata_path, 'r') as f:
-                                    import json
-                                    metadata = json.load(f)
-                                
-                                latest_frames[recorder_id] = {
-                                    'frame_path': os.path.join(remote_path, item),
-                                    'metadata': metadata,
-                                    'last_checked': time.time()
-                                }
-                            except Exception as e:
-                                print(f"Error reading metadata file {metadata_path}: {e}")
-            except Exception as e:
-                print(f"Error accessing remote path {remote_path}: {e}")
-                continue
-            
-            if latest_frames:
-                remote_recorders[stream_id] = {
-                    'client_ip': client_ip,
-                    'remote_path': remote_path,
-                    'latest_frames': latest_frames,
-                    'last_checked': time.time()
-                }
-                print(f"Found {len(latest_frames)} recorders for stream {stream_id}")
-            else:
-                print(f"No latest frames found for stream {stream_id}")
-
-def get_remote_frame(stream_id):
-    """
-    Get the latest frame from a remote recorder for a stream
-    
-    Args:
-        stream_id: ID of the stream
-        
-    Returns:
-        tuple: (frame, timestamp, buffer_seconds) or (None, None, None) if not available
-    """
-    if stream_id not in remote_recorders:
-        return None, None, None
-    
-    recorder_info = remote_recorders[stream_id]
-    latest_frames = recorder_info['latest_frames']
-    
-    if not latest_frames:
-        return None, None, None
-    
-    # Find the most recent frame
-    latest_recorder_id = None
-    latest_timestamp = 0
-    
-    for recorder_id, frame_info in latest_frames.items():
-        metadata = frame_info.get('metadata', {})
-        timestamp = metadata.get('timestamp', 0)
-        
-        if timestamp > latest_timestamp:
-            latest_timestamp = timestamp
-            latest_recorder_id = recorder_id
-    
-    if not latest_recorder_id:
-        return None, None, None
-    
-    frame_info = latest_frames[latest_recorder_id]
-    frame_path = frame_info['frame_path']
-    metadata = frame_info.get('metadata', {})
-    
-    # Check if the frame file exists and is readable
-    if not os.path.exists(frame_path):
-        return None, None, None
-    
-    # Read the frame
-    try:
-        frame = cv2.imread(frame_path)
-        timestamp = metadata.get('timestamp', time.time())
-        buffer_seconds = metadata.get('buffer_seconds', 5)
-        
-        # Update last checked time
-        frame_info['last_checked'] = time.time()
-        
-        return frame, timestamp, buffer_seconds
-    except Exception as e:
-        print(f"Error reading frame from {frame_path}: {e}")
-        return None, None, None
-
-def remote_recorder_monitor():
-    """Background thread to monitor and update remote recorders"""
-    while True:
-        try:
-            check_remote_recorders()
-        except Exception as e:
-            print(f"Error in remote recorder monitor: {e}")
-        
-        # Check every 30 seconds
-        time.sleep(REMOTE_RECORDER_CHECK_INTERVAL)
-
-# Start the remote recorder monitor in a background thread
-def start_remote_recorder_monitor():
-    """Start the remote recorder monitor thread"""
-    threading.Thread(target=remote_recorder_monitor, daemon=True).start()
