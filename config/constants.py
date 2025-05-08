@@ -8,7 +8,7 @@ UPLOAD_BASE_DIR = '/home/straysafe/registered_pets'
 DATABASE_PATH = "/home/straysafe/registered_pets"
 HLS_CLEANUP_DIR = '/var/hls'
 REMOTE_RECORDINGS_DIR = '/home/straysafe/remote_recordings'
-
+DEVICE = 'cuda'
 # --- Remote Recorder Settings ---
 USE_BUFFERED_STREAMS = True   # Use buffered streams from the client
 REMOTE_RECORDER_IPS = {       # Map of stream IDs to client recorder IPs
