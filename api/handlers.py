@@ -22,7 +22,7 @@ from core.notification import notify_owner, notify_pound
 from models.classifier import transform, vgg_model
 from data.database import owner_embeddings, detected_animals_log, notification_history, stream_data, animal_counters
 from core.utils import match_snapshot_to_owner, precompute_owner_embeddings, remove_green_border, log_animal_detection
-from core.stream_manager import remote_recorders, check_remote_recorders, get_remote_frame
+from core.stream_manager import check_remote_recorders, get_remote_frame, remote_recorders
 
 def handle_detected_animals(request):
     """Handle request for detected animals with filtering options"""

@@ -18,7 +18,7 @@ from config.settings import *
 from core.detection import detect_animals_in_frame, find_matching_tracker, create_new_tracker, process_animal_async
 
 # Import from data
-from data.database import stream_data, animal_counters, remote_recorders
+from data.database import stream_data, animal_counters
 
 # Global dictionary for remote recorder info
 remote_recorders = {}

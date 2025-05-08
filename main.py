@@ -37,6 +37,8 @@ def initialize_app():
     os.makedirs(UPLOAD_BASE_DIR, exist_ok=True)
     os.makedirs(HLS_CLEANUP_DIR, exist_ok=True)
     os.makedirs(REMOTE_RECORDINGS_DIR, exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp'), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venv', 'debug'), exist_ok=True)
     os.chmod(HLS_CLEANUP_DIR, 0o777)
     
     # Initialize database
